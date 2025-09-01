@@ -1,21 +1,27 @@
 import { Injectable, Logger } from '@nestjs/common';
-import HttpSms from 'httpsms';
 import * as process from 'node:process';
 import { SendSmsDto } from './dto/send-sms.dto';
 
 @Injectable()
 export class SmsService {
   private readonly logger = new Logger(SmsService.name);
-  private readonly client: HttpSms;
+  private readonly client: any;
   private readonly allowedPrefixes = ['+9379', '+9372'];
   private readonly fromNumber = process.env.HTTPSMS_FROM_NUMBER || '+93796597078';
 
-  constructor() {
-    const apiKey = process.env.HTTPSMS_API_KEY;
-    if (!apiKey) {
-      throw new Error('HTTPSMS_API_KEY is not set in environment variables');
+  constructor(client?: any) {
+    if (client) {
+      this.client = client;
+    } else {
+      // Only require and instantiate HttpSms in production
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const HttpSms = require('httpsms');
+      const apiKey = process.env.HTTPSMS_API_KEY;
+      if (!apiKey) {
+        throw new Error('HTTPSMS_API_KEY is not set in environment variables');
+      }
+      this.client = new HttpSms(apiKey);
     }
-    this.client = new HttpSms(apiKey);
   }
 
   // Validate Afghanistan phone number format
@@ -30,28 +36,30 @@ export class SmsService {
 
   async sendSms(dto: SendSmsDto): Promise<any> {
     const { phoneNumber, message } = dto;
+    this.logger.log(JSON.stringify({ event: 'request_received', phoneNumber, message }));
     if (!this.isValidAfghanistanNumber(phoneNumber)) {
-      this.logger.warn(`Invalid Afghanistan phone number: ${phoneNumber}`);
+      this.logger.warn(JSON.stringify({ event: 'invalid_phone', phoneNumber }));
       return {
         success: false,
         error: 'Invalid Afghanistan phone number format.',
       };
     }
     if (!this.isAllowedPrefix(phoneNumber)) {
-      this.logger.warn(`Phone number not allowed for SMS: ${phoneNumber}`);
+      this.logger.warn(JSON.stringify({ event: 'disallowed_prefix', phoneNumber }));
       return {
         success: false,
         error: 'Phone number prefix not allowed for SMS.',
       };
     }
     try {
+      this.logger.log(JSON.stringify({ event: 'sms_queued', phoneNumber, message }));
       const response = await this.client.messages.postSend({
         content: message,
         from: this.fromNumber,
         to: phoneNumber,
         encrypted: false,
       });
-      this.logger.log(`SMS sent to ${phoneNumber}: ${message}, id: ${response.id}`);
+      this.logger.log(JSON.stringify({ event: 'sms_api_response', phoneNumber, response }));
       return {
         success: true,
         queued: true,
@@ -59,7 +67,7 @@ export class SmsService {
         data: response,
       };
     } catch (error: any) {
-      this.logger.error(`Failed to send SMS to ${phoneNumber}: ${error.message}`, error);
+      this.logger.error(JSON.stringify({ event: 'sms_send_error', phoneNumber, error: error.message, details: error.response?.data }));
       return {
         success: false,
         error: error.message,

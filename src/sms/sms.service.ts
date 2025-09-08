@@ -5,23 +5,20 @@ import { SendSmsDto } from './dto/send-sms.dto';
 @Injectable()
 export class SmsService {
   private readonly logger = new Logger(SmsService.name);
-  private readonly client: any;
+  private client: any;
   private readonly allowedPrefixes = ['+9379', '+9372'];
   private readonly fromNumber = process.env.HTTPSMS_FROM_NUMBER || '+93796597078';
 
-  constructor(client?: any) {
-    if (client) {
-      this.client = client;
-    } else {
-      // Only require and instantiate HttpSms in production
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const HttpSms = require('httpsms');
+  constructor() {
+    // Only import HttpSms using dynamic import for ES module compatibility
+    import('httpsms').then((mod) => {
+      const HttpSms = mod.default;
       const apiKey = process.env.HTTPSMS_API_KEY;
       if (!apiKey) {
         throw new Error('HTTPSMS_API_KEY is not set in environment variables');
       }
       this.client = new HttpSms(apiKey);
-    }
+    });
   }
 
   // Validate Afghanistan phone number format
